@@ -41,22 +41,43 @@ def get_db_connection():
 
 @app.route('/api/production_plans', methods=['GET'])
 def get_production_plans():
-    conn = None # Initialize conn to None
+    # รับ query parameters
+    machine_filter = request.args.get('machine')
+    start_date_filter = request.args.get('startDate')  # ชื่อ parameter ควรตรงกับที่ Frontend จะส่ง
+    end_date_filter = request.args.get('endDate')
+
+    conn = None
     try:
         conn = get_db_connection()
         if conn is None:
             return jsonify({"error": "Database connection failed"}), 500
 
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT  machine, station, postingdate, material_code, size, ton
-            FROM dbo.production_planDev
-            ORDER BY postingdate desc , machine asc
-        """) # เพิ่ม ORDER BY เพื่อให้ข้อมูลเรียงตามวันที่และเครื่องจักร
 
-        # ดึงชื่อคอลัมน์จาก cursor.description
+        # สร้าง SQL query เบื้องต้น
+        sql_query = "SELECT machine, station, postingdate, material_code, size, ton, description, protime, htime, shift, s_time, e_time, bl_grade, rev, username FROM dbo.production_planDev"  # เพิ่มคอลัมน์ที่ต้องการให้ครบ
+
+        conditions = []
+        params = []
+
+        if machine_filter:
+            conditions.append("machine = ?")
+            params.append(machine_filter)
+        if start_date_filter:
+            conditions.append("postingdate >= ?")
+            params.append(start_date_filter)
+        if end_date_filter:
+            conditions.append("postingdate <= ?")
+            params.append(end_date_filter)
+
+        if conditions:
+            sql_query += " WHERE " + " AND ".join(conditions)
+
+        sql_query += " ORDER BY postingdate, machine, s_time"  # หรือการเรียงลำดับที่คุณต้องการ
+
+        cursor.execute(sql_query, *params)  # ใช้ *params เพื่อ unpack list
+
         columns = [column[0] for column in cursor.description]
-        # สร้าง list of dictionaries
         results = []
         for row in cursor.fetchall():
             results.append(dict(zip(columns, row)))
@@ -64,7 +85,6 @@ def get_production_plans():
         return jsonify(results)
 
     except pyodbc.Error as e:
-        # Log the error or handle it more gracefully
         print(f"Database query error: {e}")
         return jsonify({"error": "An error occurred while fetching data"}), 500
     finally:
