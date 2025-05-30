@@ -1,0 +1,21 @@
+# Python / Backend (api folder)
+api/venv/
+api/*.pyc
+api/__pycache__/
+api/.env  # ถ้ามีการใช้ .env file ในอนาคต
+
+# Node.js / Frontend (ถ้า frontend มี node_modules)
+# frontend/node_modules/
+# frontend/dist/
+# frontend/.env
+
+# IDE specific files
+.idea/
+.vscode/  # ถ้า settings ของ VSCode ไม่ต้องการให้ track ทั้งหมด
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
