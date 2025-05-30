@@ -42,9 +42,15 @@ def get_db_connection():
 @app.route('/api/production_plans', methods=['GET'])
 def get_production_plans():
     # รับ query parameters
-    machine_filter = request.args.get('machine')
+    station_param_key = 'station'
+    station_filter = request.args.get(station_param_key)
     start_date_filter = request.args.get('startDate')  # ชื่อ parameter ควรตรงกับที่ Frontend จะส่ง
     end_date_filter = request.args.get('endDate')
+
+    print(f"--- Debug get_production_plans ---")
+    print(f"Request Args: {request.args}")  # Print request.args ทั้งหมดออกมาดู
+    print(f"Value for key '{station_param_key}': {station_filter}")
+    print(f"Type of value for key '{station_param_key}': {type(station_filter)}")
 
     conn = None
     try:
@@ -60,9 +66,12 @@ def get_production_plans():
         conditions = []
         params = []
 
-        if machine_filter:
-            conditions.append("machine = ?")
-            params.append(machine_filter)
+        if station_filter and station_filter.strip() != '' and station_filter.lower() != 'none':
+            conditions.append("station = ?")
+            params.append(station_filter.strip())  # ใช้ .strip() เพื่อตัด space ที่อาจจะติดมา
+            print(f"Condition added: station = ?, Param: {station_filter.strip()}")
+        else:
+            print(f"No valid station filter applied. station_filter was: '{station_filter}'")
         if start_date_filter:
             conditions.append("postingdate >= ?")
             params.append(start_date_filter)
@@ -73,7 +82,7 @@ def get_production_plans():
         if conditions:
             sql_query += " WHERE " + " AND ".join(conditions)
 
-        sql_query += " ORDER BY postingdate, machine, s_time"  # หรือการเรียงลำดับที่คุณต้องการ
+        sql_query += " ORDER BY postingdate, station, machine, s_time"  # หรือการเรียงลำดับที่คุณต้องการ
 
         cursor.execute(sql_query, *params)  # ใช้ *params เพื่อ unpack list
 
@@ -93,19 +102,18 @@ def get_production_plans():
 
 
 @app.route('/api/production_plan/update_by_machine_and_date_range', methods=['POST'])
-def update_production_plan_by_machine_and_date_range():
+def update_production_plan_data():
     data = request.get_json()
 
-    if not data:
-        return jsonify({"error": "Invalid JSON data"}), 400
+    if not station_code:  # ถ้ายังใช้ key "machine_code" จาก frontend แต่หมายถึง station
+        station_code = data.get('machine_code')  # fallback หรือบังคับให้ frontend เปลี่ยน
 
-    machine_code = data.get('machine_code')
     delete_start_date_str = data.get('delete_start_date')
     delete_end_date_str = data.get('delete_end_date')
-    new_plan_data = data.get('new_plan_data')  # นี่คือ Array of Objects
+    new_plan_data = data.get('new_plan_data')
 
-    if not all([machine_code, delete_start_date_str, delete_end_date_str]):
-        return jsonify({"error": "Missing required fields: machine_code, delete_start_date, delete_end_date"}), 400
+    if not all([station_code, delete_start_date_str, delete_end_date_str]):
+        return jsonify({"error": "Missing required fields: station_code, delete_start_date, delete_end_date"}), 400
 
     if new_plan_data is None or not isinstance(new_plan_data, list):
         # อนุญาตให้ new_plan_data เป็น Array ว่างได้
@@ -136,61 +144,44 @@ def update_production_plan_by_machine_and_date_range():
 
         # 1. Delete existing data in the date range for the specified machine
         sql_delete = """
-            DELETE FROM dbo.production_planDev
-            WHERE machine = ? AND postingdate >= ? AND postingdate <= ?
-        """
-        cursor.execute(sql_delete, machine_code, delete_start_date_str, delete_end_date_str)
+                    DELETE FROM dbo.production_planDev
+                    WHERE station = ? AND postingdate >= ? AND postingdate <= ?
+                """
+        cursor.execute(sql_delete, station_code, delete_start_date_str, delete_end_date_str)
         # print(f"Deleted rows: {cursor.rowcount}") # For debugging
 
-        # 2. Insert new plan data (if any)
+        # 2. Insert new plan data
         if new_plan_data:
-            # SQL INSERT Statement อ้างอิงตาม CREATE TABLE [dbo].[production_planDev]
             sql_insert_final = """
-                       INSERT INTO dbo.production_planDev (
-                           machine, station, postingdate, size, ton,                     -- 5
-                           protime, htime, description, change, username,                -- 5 (รวมเป็น 10)
-                           material_code, approve, approveby, approvedate, status,       -- 5 (รวมเป็น 15)
-                           shift, complete, s_time, e_time, bl_grade,                    -- 5 (รวมเป็น 20)
-                           rev                                                            -- 1 (รวมเป็น 21)
-                       ) VALUES (
-                           ?, ?, ?, ?, ?,  -- machine, station, postingdate, size, ton
-                           ?, ?, ?, GETDATE(), ?,  -- protime, htime, description, change (auto), username
-                           ?, NULL, NULL, NULL, ?,  -- material_code, approve (NULL), approveby (NULL), approvedate (NULL), status
-                           ?, ?, ?, ?, ?,  -- shift, complete (0), s_time, e_time, bl_grade
-                           NULL            -- rev (NULL)
-                       )
-                   """
-            # จำนวน ? ใน VALUES คือ 17 ตัว (ไม่รวม GETDATE() และ NULL 4 ตัวที่ hardcode)
-            # รวมทั้งหมด 21 ค่าที่จะถูกใส่เข้าไปใน 21 คอลัมน์
-
-            for item_index, item in enumerate(new_plan_data): # ใช้ enumerate เพื่อดู index ด้วย
-                print(f"Processing item at index {item_index}, type: {type(item)}")  # ดู type ของแต่ละ item
-                print(f"Item content: {item}")  # ดูเนื้อหาของแต่ละ item
-                if not isinstance(item, dict):  # ตรวจสอบให้แน่ใจว่า item เป็น dictionary
-                    print(f"Error: Item at index {item_index} is not a dictionary. Skipping or raising error.")
-                    # คุณอาจจะ raise ValueError หรือ continue เพื่อข้าม item นี้
-                    # conn.rollback() # ถ้าต้องการให้ transaction ล้มเหลวทั้งหมด
-                    # return jsonify({"error": f"Invalid data format: item at index {item_index} is not an object"}), 400
-                    raise ValueError(f"Invalid data format: item at index {item_index} is not an object. Item: {item}")
-
-                station = item.get('station')
-                postingdate_str = item.get('postingdate')  # ควรเป็น 'YYYY-MM-DD' หรือ 'YYYY-MM-DD HH:MM:SS'
+                        INSERT INTO dbo.production_planDev (
+                            machine, station, postingdate, size, ton,
+                            protime, htime, description, change, username,
+                            material_code, approve, approveby, approvedate, status,
+                            shift, complete, s_time, e_time, bl_grade,
+                            rev
+                        ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, NULL )
+                    """
+            for item in new_plan_data:
+                # PK Components
+                machine_val = item.get('machine')  # machine ยังคงต้องมีในแต่ละ item
+                # station_val = item.get('station') # station จะใช้ station_code หลัก
+                postingdate_str = item.get('postingdate')
                 material_code = item.get('material_code')
                 shift_val = item.get('shift')
 
-                # ตรวจสอบ PK Components
-                if not all([station, postingdate_str, material_code, shift_val]):
-                    raise ValueError(f"Missing Primary Key components in item: {item}")
+                # **สำคัญ:** ตรวจสอบ PK ที่จำเป็น
+                if not all([machine_val, postingdate_str, material_code, shift_val]):
+                    raise ValueError(
+                        f"Missing PK components (machine, postingdate, material_code, shift) in item: {item}")
 
                 # --- Other Columns (จาก item หรือ default/hardcoded) ---
                 size = item.get('size')
-
                 ton_val = item.get('ton')
                 if ton_val is not None:
                     try:
                         ton_val = float(ton_val)
-                    except (ValueError, TypeError):  # เพิ่ม TypeError เผื่อค่าที่ส่งมาไม่ใช่ string/number
-                        raise ValueError(f"Invalid value for 'ton' (must be a number) in item: {item}")
+                    except (ValueError, TypeError):
+                        raise ValueError(f"Invalid 'ton' in {item}")
 
                 protime = item.get('protime')
 
@@ -216,29 +207,21 @@ def update_production_plan_by_machine_and_date_range():
 
                 # --- Execute Insert ---
                 cursor.execute(sql_insert_final,
-                               machine_code,  # 1. machine
-                               station,  # 2. station
-                               postingdate_str,  # 3. postingdate (pyodbc จะจัดการแปลง string เป็น datetime)
-                               size,  # 4. size
-                               ton_val,  # 5. ton
-                               protime,  # 6. protime
-                               htime_val,  # 7. htime
-                               description,  # 8. description
-                               # GETDATE() is 9. change
-                               username_to_insert,  # 10. username
-                               material_code,  # 11. material_code
-                               # NULL, NULL, NULL are 12,13,14. approve, approveby, approvedate
-                               status_to_insert,  # 15. status
-                               shift_val,  # 16. shift
-                               complete_to_insert,  # 17. complete
-                               s_time,  # 18. s_time
-                               e_time,  # 19. e_time
-                               bl_grade  # 20. bl_grade
-                               # NULL is 21. rev
+                               machine_val,  # machine จาก item
+                               station_code,  # station จาก parameter หลัก
+                               postingdate_str,
+                               size, ton_val,
+                               item.get('protime'), item.get('htime'), item.get('description'),
+                               'WebAppUser',  # username
+                               material_code,
+                               'วางแผนไว้',  # status
+                               shift_val,
+                               0,  # complete
+                               item.get('s_time'), item.get('e_time'), item.get('bl_grade')
                                )
 
         conn.commit()
-        return jsonify({"message": "Production plan updated successfully"}), 200
+        return jsonify({"message": "Production plan updated successfully for station: " + station_code}), 200
 
     except pyodbc.Error as db_err:
         if conn:

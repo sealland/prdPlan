@@ -29,14 +29,15 @@
 
         <!-- Filter Section -->
         <div class="filter-container mb-6 p-4 bg-gray-50 rounded shadow">
-            <label for="machineFilter">เครื่องจักร:</label>
-            <input type="text" id="machineFilter" placeholder="เช่น I1" value="40"> <!-- ใส่ค่าเริ่มต้นไว้ทดสอบ -->
+            <label for="stationFilter">หน่วยงาน (Station):</label> <!-- <--- เปลี่ยน Label และ for -->
+            <input type="text" id="stationFilter" placeholder="เช่น OCP I1"> <!-- <--- เปลี่ยน id และ placeholder -->
+            <!-- หรือจะทำเป็น Dropdown <select id="stationFilter"> ... </select> -->
 
             <label for="startDateFilter">วันที่เริ่มต้น:</label>
-            <input type="date" id="startDateFilter" value="2025-04-30"> <!-- ใส่ค่าเริ่มต้นไว้ทดสอบ -->
+            <input type="date" id="startDateFilter">
 
             <label for="endDateFilter">วันที่สิ้นสุด:</label>
-            <input type="date" id="endDateFilter" value="2025-04-30"> <!-- ใส่ค่าเริ่มต้นไว้ทดสอบ -->
+            <input type="date" id="endDateFilter">
 
             <button id="loadDataButton" class="bg-indigo-500 hover:bg-indigo-700">
                 โหลดข้อมูล
@@ -61,7 +62,7 @@
         const API_BASE_URL = 'http://127.0.0.1:5000/api';
 
         // --- DOM Elements ---
-        const machineFilterInput = document.getElementById('machineFilter');
+        const stationFilterInput = document.getElementById('stationFilter');
         const startDateFilterInput = document.getElementById('startDateFilter');
         const endDateFilterInput = document.getElementById('endDateFilter');
         const loadDataButton = document.getElementById('loadDataButton');
@@ -137,16 +138,16 @@
 
         // --- Event Listeners ---
         loadDataButton.addEventListener('click', async () => {
-            const machine = machineFilterInput.value.trim();
+            const station = stationFilterInput.value.trim();
             const startDate = startDateFilterInput.value;
             const endDate = endDateFilterInput.value;
 
-            if (!machine) {
-                showMessage('กรุณาระบุเครื่องจักร', true);
+            if (!station) {
+                showMessage('กรุณาระบุหน่วยงาน', true);
                 return;
             }
 
-            let queryParams = `machine=${encodeURIComponent(machine)}`;
+            let queryParams = `station=${encodeURIComponent(station)}`;
             if (startDate) queryParams += `&startDate=${startDate}`;
             if (endDate) queryParams += `&endDate=${endDate}`;
 
@@ -183,7 +184,7 @@
                     console.log("LOAD DATA: Columns for new instance:", JSON.stringify(settingsForNewInstance.columns, null, 2));
                     hotInstance = new Handsontable(hotElement, settingsForNewInstance);
                 }
-                showMessage(`โหลดข้อมูลสำหรับเครื่องจักร ${machine} สำเร็จ`, false);
+                showMessage(`โหลดข้อมูลสำหรับหน่วยงาน ${station} สำเร็จ`, false);
             } catch (error) {
                 console.error('Error loading data:', error);
                 showMessage(`เกิดข้อผิดพลาดในการโหลดข้อมูล: ${error.message}`, true);
@@ -200,8 +201,6 @@
             // 1. ดึงข้อมูล Source จาก Handsontable (ซึ่งควรจะเป็น Array of Objects)
             const sourceDataObjects = hotInstance.getSourceData();
 
-            console.log("Save - getSourceData() result (before filtering spares):", JSON.stringify(sourceDataObjects, null, 2));
-
             // 2. Filter เอาแถวที่เป็น Spare Rows จริงๆ ออกไป
             // Spare rows จาก getSourceData() มักจะเป็น object ที่มี property ทั้งหมดเป็น null
             // เงื่อนไขการ filter: ถ้าทุก property ที่เป็นส่วนหนึ่งของ Primary Key (หรือ property สำคัญอื่นๆ) เป็น null
@@ -210,44 +209,30 @@
             // ตรงกับ 'data' property ที่คุณกำหนดใน hotSettings.columns
             const filteredPlanData = sourceDataObjects.filter(item => {
                 // ตรวจสอบว่า item เป็น object และไม่ null ก่อนที่จะเข้าถึง property
-                if (typeof item !== 'object' || item === null) {
-                    return false; // ไม่ใช่ object หรือเป็น null ก็ไม่เอา
-                }
-                if (Object.keys(item).length === 0) {
-                    console.log("Filtering out empty object: {}", item);
-                    return false; // เป็น Object ว่าง ก็ไม่เอา
-                }
+                if (typeof item !== 'object' || item === null) return false;
+                if (Object.keys(item).length === 0) return false;
                 // เงื่อนไข: ถ้าทุก PK fields (หรือ field สำคัญ) เป็น null แสดงว่าเป็น spare row
                 // (ปรับเงื่อนไขนี้ตามความเหมาะสมกับข้อมูลของคุณ)
-                const station = item.station;
+                const station = item.station; 
                 const postingdate = item.postingdate;
                 const material_code = item.material_code;
                 const shift = item.shift; // ตรวจสอบชื่อ property ให้ตรงกับ columns setting
 
-                if ((station === null || String(station).trim() === '') &&
-                        (postingdate === null || String(postingdate).trim() === '') &&
-                        (material_code === null || String(material_code).trim() === '') &&
-                        (shift === null || String(shift).trim() === '')) {
-                        console.log("Filtering out row with all null/empty PKs:", item);
-                        return false;
-                }
-                
-                if (!station || !postingdate || !material_code || !shift) {
-                    console.log("Filtering out row with missing essential PK field(s):", item);
+                if (!machine || !postingdate || !material_code || !shift) {
+                    console.log("Filtering out row with missing essential PK field(s) for save:", item);
                     return false;
                 }
-
                 return true; // ถ้าผ่านเงื่อนไขด้านบน แสดงว่าเป็นข้อมูลที่ต้องการ
             });
 
             console.log("Save - filteredPlanData (after filtering spares):", JSON.stringify(filteredPlanData, null, 2));
 
-            const machineToSave = machineFilterInput.value.trim();
+            const stationToSave = stationFilterInput.value.trim(); 
             const deleteStartDate = startDateFilterInput.value;
             const deleteEndDate = endDateFilterInput.value;
 
-            if (!machineToSave) {
-                showMessage('ไม่พบข้อมูลเครื่องจักรที่จะบันทึก', true);
+            if (!stationToSave) {
+                showMessage('ไม่พบข้อมูลหน่วยงาน (Station) ที่จะบันทึก', true); return;
                 return;
             }
             if (!deleteStartDate || !deleteEndDate) {
@@ -266,7 +251,7 @@
             }
 
             const payload = {
-                machine_code: machineToSave,
+                station_code: stationToSave, 
                 delete_start_date: deleteStartDate,
                 delete_end_date: deleteEndDate,
                 new_plan_data: filteredPlanData // ใช้ข้อมูลที่ผ่านการ filter แล้ว
