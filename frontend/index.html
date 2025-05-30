@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>โปรแกรมวางแผนการผลิต (Handsontable)</title>
+    <!-- เพิ่ม Tailwind CSS ผ่าน CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <!-- เพิ่ม Handsontable CSS และ JS ผ่าน CDN -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
+
+    <style>
+        /* เพิ่มสไตล์เล็กน้อยสำหรับตาราง (ถ้าต้องการ) */
+       /* table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }*/
+        #hotContainer {
+            width: 100%;
+            height: 500px; 
+            overflow: auto; /* Handsontable จะจัดการ scrollbar เอง */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="container mx-auto bg-white p-6 rounded-lg shadow-lg">
+        <h1 class="text-2xl font-bold mb-4 text-center">แผนการผลิต (Handsontable)</h1>
+
+        <!-- Container สำหรับ Handsontable -->
+        <div id="hotContainer"></div>
+
+        <!-- เพิ่มปุ่มสำหรับ Save (ยังไม่ได้ implement functionality) -->
+        <div class="mt-4 text-center">
+            <button id="saveButton"
+                    class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                บันทึกข้อมูล
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let hotInstance;
+        function formatDate(dateString) {
+            if (!dateString) return '';
+            try {
+                const date = new Date(dateString);
+                // ให้ return YYYY-MM-DD
+                return date.toISOString().split('T')[0];
+            } catch (e) {
+                return dateString; // ถ้า format ไม่ได้ ก็ return ค่าเดิม
+            }
+        }
+
+        async function initializeHandsontable() {
+            const hotElement = document.getElementById('hotContainer');
+            if (!hotElement) {
+                console.error('Handsontable container not found!');
+                return;
+            }
+
+            try {
+                // ตรวจสอบให้แน่ใจว่า Flask API ของคุณ (app.py) กำลังรันอยู่ที่ http://127.0.0.1:5000
+                const response = await fetch('http://127.0.0.1:5000/api/production_plans');
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                let apiData = await response.json();
+                const hotData = apiData.map(item => ({
+                    machine: item.machine,
+                    station: item.station,
+                    postingdate: formatDate(item.postingdate), // Format วันที่
+                    material_code: item.material_code,
+                    size: item.size,
+                    ton: item.ton
+                }));
+
+                hotInstance = new Handsontable(hotElement, {
+                    data: hotData, 
+                    rowHeaders: true, 
+                    minSpareRows: 1,
+                    colHeaders: [ 
+                        'เครื่องจักร',
+                        'หน่วยงาน',
+                        'วันที่ผลิต (YYYY-MM-DD)',
+                        'MAT CODE',
+                        'ขนาด',
+                        'จำนวนตัน'
+                    ],
+                    columns: [ // กำหนดคุณสมบัติของแต่ละคอลัมน์
+                        { data: 'machine', type: 'text' },
+                        { data: 'station', type: 'text' },
+                        {
+                            data: 'postingdate',
+                            type: 'date', // กำหนด type เป็น date
+                            dateFormat: 'YYYY-MM-DD', // Format ที่ต้องการเมื่อแก้ไข
+                            correctFormat: true // ให้ Handsontable ช่วยแก้ Format ที่ผิด
+                        },
+                        { data: 'material_code', type: 'text' },
+                        { data: 'size', type: 'text' },
+                        { data: 'ton', type: 'numeric', numericFormat: { pattern: '0,0.00' } } // ตัวเลข, format
+                    ],
+                    stretchH: 'all', // ให้คอลัมน์ขยายเต็มความกว้าง
+                    height: 'auto', // ให้ความสูงปรับตาม #hotContainer
+                    licenseKey: 'non-commercial-and-evaluation', // Key สำหรับ Free version
+                    // เปิดใช้งานการ copy/paste
+                    copyPaste: true,
+                    // เปิดใช้งานการ undo/redo
+                    undo: true,
+                    // contextMenu: true, // ถ้าต้องการเมนูคลิกขวา (มี copy, paste, insert row/col etc.)
+                    // minSpareRows: 1, // เพิ่มแถวว่างด้านล่างเสมอ เพื่อให้ง่ายต่อการเพิ่มข้อมูลใหม่
+                });
+
+                // --- ส่วนของปุ่ม Save (ยังไม่ implement การส่งข้อมูลกลับไป API) ---
+                const saveButton = document.getElementById('saveButton');
+                if (saveButton) {
+                    saveButton.addEventListener('click', () => {
+                        if (hotInstance) {
+                            const currentData = hotInstance.getSourceDataArray(); // หรือ hotInstance.getData()
+                            console.log('Data to save:', currentData);
+                            alert('ดูข้อมูลที่ต้องการบันทึกใน Console (F12)');
+                            // TODO: ส่ง currentData กลับไปที่ Backend API เพื่อบันทึก
+                        }
+                    });
+                }
+
+
+            } catch (error) {
+                console.error('Error initializing Handsontable or fetching data:', error);
+                hotElement.innerHTML = `<p class="text-red-500 text-center">เกิดข้อผิดพลาด: ${error.message}</p>`;
+            }
+        }
+
+        // เรียกฟังก์ชันเมื่อหน้าเว็บโหลดเสร็จ
+        document.addEventListener('DOMContentLoaded', initializeHandsontable);
+    </script>
+</body>
+</html>
