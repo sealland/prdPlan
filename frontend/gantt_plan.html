@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>แผนการผลิต (Gantt Chart)</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/frappe-gantt@0.6.1/dist/frappe-gantt.css">
+    <script src="https://cdn.jsdelivr.net/npm/frappe-gantt@0.6.1/dist/frappe-gantt.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #f4f7fa; }
+        .gantt-container { margin: 20px; }
+        .controls label, .controls input, .controls button { margin-bottom: 0.5rem; }
+    </style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8">
+    <div class="container mx-auto bg-white p-6 rounded-lg shadow-lg">
+        <h1 class="text-2xl font-bold mb-6 text-center">แผนการผลิต (Gantt Chart View)</h1>
+
+        <div class="controls mb-4 p-4 bg-gray-50 rounded shadow flex flex-wrap items-end gap-4">
+            <div>
+                <label for="ganttStationFilter" class="block text-sm font-medium text-gray-700">หน่วยงาน (Station):</label>
+                <input type="text" id="ganttStationFilter" placeholder="เช่น OCP I1" class="mt-1 p-2 border rounded-md shadow-sm w-full md:w-auto">
+            </div>
+            <div>
+                <label for="ganttStartDate" class="block text-sm font-medium text-gray-700">วันที่เริ่มต้น:</label>
+                <input type="date" id="ganttStartDate" class="mt-1 p-2 border rounded-md shadow-sm w-full md:w-auto">
+            </div>
+            <div>
+                <label for="ganttEndDate" class="block text-sm font-medium text-gray-700">วันที่สิ้นสุด:</label>
+                <input type="date" id="ganttEndDate" class="mt-1 p-2 border rounded-md shadow-sm w-full md:w-auto">
+            </div>
+            <div>
+                <button id="loadGanttDataButton" class="bg-indigo-500 hover:bg-indigo-700 text-white py-2 px-4 rounded-md shadow-sm">
+                    โหลดข้อมูล Gantt
+                </button>
+            </div>
+            <div>
+                <button id="createTaskButton" class="bg-green-500 hover:bg-green-700 text-white py-2 px-4 rounded-md shadow-sm">
+                    สร้างแผนใหม่
+                </button>
+            </div>
+        </div>
+
+        <div class="gantt-container">
+            <svg id="gantt"></svg>
+        </div>
+        <div id="ganttMessageArea" class="text-center mt-4"></div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://127.0.0.1:5000/api';
+        let ganttInstance;
+
+        const ganttElement = document.querySelector("#gantt");
+        const loadGanttDataButton = document.getElementById('loadGanttDataButton');
+        const createTaskButton = document.getElementById('createTaskButton');
+        const ganttMessageArea = document.getElementById('ganttMessageArea');
+        // const ganttMachineFilterInput = document.getElementById('ganttMachineFilter'); // <--- เปลี่ยน
+        const ganttStationFilterInput = document.getElementById('ganttStationFilter'); // <--- เป็นอันนี้
+        const ganttStartDateInput = document.getElementById('ganttStartDate');
+        const ganttEndDateInput = document.getElementById('ganttEndDate');
+
+        function showGanttMessage(message, isError = false) {
+            ganttMessageArea.textContent = message;
+            ganttMessageArea.className = `text-center mt-4 p-2 rounded ${isError ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`;
+        }
+
+        function setupGantt(tasks) {
+            if (!ganttElement) {
+                console.error("Gantt SVG element not found!"); return;
+            }
+            if (ganttInstance) {
+                ganttElement.innerHTML = ''; // Clear previous instance
+            }
+
+            ganttInstance = new Gantt("#gantt", tasks, {
+                header_height: 50,
+                column_width: 30,
+                step: 24,
+                view_modes: ['Quarter Day', 'Half Day', 'Day', 'Week', 'Month'],
+                bar_height: 20,
+                bar_corner_radius: 3,
+                arrow_curve: 5,
+                padding: 18,
+                view_mode: 'Day',
+                date_format: 'YYYY-MM-DD',
+                custom_popup_html: function(task) {
+                    return `
+                        <div class="details-container" style="padding:10px; font-size:12px;">
+                            <h5>${task.name}</h5>
+                            <p>เครื่องจักร: ${task.original_machine || 'N/A'}</p>
+                            <p>หน่วยงาน: ${task.original_station || 'N/A'}</p>
+                            <p>เริ่มต้น: ${task.start}</p>
+                            <p>สิ้นสุด: ${task.end}</p>
+                            ${task.progress ? `<p>ความคืบหน้า: ${task.progress}%</p>` : ''}
+                            <p>ID: ${task.id}</p>
+                        </div>
+                    `;
+                },
+                on_click: function (task) { console.log("Task clicked:", task); },
+                on_date_change: function (task, start, end) {
+                    console.log("Date changed (drag/resize):", task.id, task.name, start, end);
+                    const updatedTask = ganttInstance.tasks.find(t => t.id === task.id);
+                    if(updatedTask) {
+                         console.log("Updated Task Data:", updatedTask);
+                         // TODO: Implement API call to save changes
+                         // saveGanttTaskChange(updatedTask, { new_start: start, new_end: end });
+                         showGanttMessage(`Task ${updatedTask.name} เปลี่ยนเป็น ${updatedTask.start} ถึง ${updatedTask.end}`, false);
+                    }
+                },
+                on_progress_change: function (task, progress) { /* ... */ }
+            });
+            console.log("Frappe Gantt instance created/updated.", ganttInstance);
+        }
+
+        loadGanttDataButton.addEventListener('click', async () => {
+            // const machine = ganttMachineFilterInput.value.trim(); // <--- เปลี่ยน
+            const station = ganttStationFilterInput.value.trim(); // <--- เป็นอันนี้
+            const startDate = ganttStartDateInput.value;
+            const endDate = ganttEndDateInput.value;
+
+            let queryParams = "";
+            const paramsArray = [];
+            // if (machine) paramsArray.push(`machine=${encodeURIComponent(machine)}`); // <--- เปลี่ยน
+            if (station) paramsArray.push(`station=${encodeURIComponent(station)}`); // <--- เป็นอันนี้
+            if (startDate) paramsArray.push(`startDate=${startDate}`);
+            if (endDate) paramsArray.push(`endDate=${endDate}`);
+            queryParams = paramsArray.join('&');
+
+            showGanttMessage('กำลังโหลดข้อมูล Gantt...', false);
+            try {
+                const response = await fetch(`${API_BASE_URL}/production_plans?${queryParams}`);
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({error: `HTTP error! status: ${response.status}`}));
+                    throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+                }
+                const apiData = await response.json();
+
+                const ganttTasks = apiData.map((item, index) => {
+                    // PK: machine, station, postingdate, material_code, shift
+                    const taskId = `task_${item.machine}_${item.station}_${item.material_code}_${item.postingdate ? item.postingdate.split('T')[0] : 'nodate'}_${item.shift || index}`;
+                    
+                    let taskStartDateStr = null;
+                    let taskEndDateStr = null;
+
+                    if (item.postingdate) { // ตรวจสอบว่า item.postingdate มีค่า และไม่ใช่ null/undefined
+                    try {
+                        const dateObj = new Date(item.postingdate);
+                        // ตรวจสอบว่า Date object ที่สร้างขึ้นมา valid หรือไม่
+                        if (isNaN(dateObj.getTime())) { // Check for Invalid Date
+                            console.warn(`Invalid postingdate for item ${index}:`, item.postingdate, item);
+                            // ถ้า postingdate ไม่ valid ก็อาจจะข้าม task นี้ไป หรือให้ค่า default ที่ปลอดภัย
+                            // return null; // หรือจะพยายามใช้ค่าอื่นถ้ามี
+                        } else {
+                            taskStartDateStr = dateObj.toISOString().split('T')[0];
+                            // เริ่มต้นให้ taskEndDateStr เป็นวันเดียวกับ taskStartDateStr
+                            taskEndDateStr = taskStartDateStr; 
+
+                            // Logic การคำนวณ End Date (ปรับปรุง)
+                            // ตัวอย่าง: ถ้ามี s_time และ e_time และ e_time < s_time (ข้ามวัน)
+                            // หรือถ้ามี duration ที่ชัดเจน
+                            // สำหรับตอนนี้ ทำให้ task มีความยาวอย่างน้อย 1 วันใน Gantt
+                            if (taskStartDateStr && taskEndDateStr === taskStartDateStr) {
+                                const endDateObjForGantt = new Date(taskEndDateStr);
+                                endDateObjForGantt.setDate(endDateObjForGantt.getDate() + 1); // Frappe Gantt แสดง 1 วัน ถ้า end คือ start ของวันถัดไป
+                                taskEndDateStr = endDateObjForGantt.toISOString().split('T')[0];
+                            }
+                        }
+                    } catch (e) {
+                        console.error(`Error processing date for item ${index}:`, item.postingdate, item, e);
+                        // return null; // ข้าม task นี้ถ้ามีปัญหาเรื่อง date
+                    }
+                } else {
+                    console.warn(`Missing postingdate for item ${index}:`, item);
+                    // return null; // ข้าม task นี้ถ้าไม่มี postingdate
+                }
+
+                // ถ้าหลังจากประมวลผลแล้ว start หรือ end date ยังเป็น null หรือไม่ถูกต้อง ให้ข้าม task นี้
+                if (!taskStartDateStr || !taskEndDateStr) {
+                    console.warn(`Skipping task due to invalid/missing start/end date for item:`, item);
+                    return null;
+                }
+
+                return {
+                    id: taskId,
+                    name: `${item.material_code || 'N/A'} (Machine:${item.machine || 'N/A'})`,
+                    start: taskStartDateStr, // ต้องเป็น 'YYYY-MM-DD'
+                    end: taskEndDateStr,     // ต้องเป็น 'YYYY-MM-DD'
+                    progress: item.complete === 1 ? 100 : (item.complete === 0 ? 0 : (item.status === 'กำลังผลิต' ? 50 : 10) ),
+                    custom_class: `bar-machine-${(item.machine || 'unknown').replace(/\s+/g, '-')} bar-station-${(item.station || 'unknown').replace(/\s+/g, '-')}`,
+                    original_machine: item.machine,
+                    original_station: item.station,
+                    original_material_code: item.material_code,
+                    original_postingdate: item.postingdate // เก็บค่าเดิมไว้ดู
+                };
+            }).filter(task => task !== null); // กรอง task ที่เป็น null ออก (ที่เกิดจาก error หรือข้อมูลไม่ครบ)
+
+            if (ganttTasks.length > 0) {
+                ganttTasks.sort((a, b) => {
+                    // เรียงตาม machine ก่อน
+                    if (a.original_machine < b.original_machine) return -1;
+                    if (a.original_machine > b.original_machine) return 1;
+                    // ถ้า machine เหมือนกัน ให้เรียงตาม start date
+                    if (new Date(a.start) < new Date(b.start)) return -1;
+                    if (new Date(a.start) > new Date(b.start)) return 1;
+                    return 0;
+                });
+            }
+                if (ganttTasks.length > 0) {
+                    setupGantt(ganttTasks);
+                    showGanttMessage(`โหลดข้อมูล Gantt สำเร็จ (${ganttTasks.length} tasks)`, false);
+                } else {
+                    setupGantt([]);
+                    // showGanttMessage('ไม่พบข้อมูลแผนการผลิตสำหรับ Gantt Chart', false); // <--- เปลี่ยน message
+                    showGanttMessage(`ไม่พบข้อมูลสำหรับหน่วยงาน ${station} ในช่วงวันที่ที่เลือก`, false);
+                }
+
+            } catch (error) {
+                console.error('Error loading Gantt data:', error);
+                const displayErrorMessage = (error instanceof Error && error.message) ? error.message : String(error);
+                showGanttMessage(`เกิดข้อผิดพลาดในการโหลดข้อมูล Gantt: ${displayErrorMessage}`, true);
+                setupGantt([]);
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            if (!ganttInstance && ganttElement) {
+                console.log("Initializing empty Frappe Gantt on DOMContentLoaded.");
+                setupGantt([]);
+            }
+        });
+    </script>
+</body>
+</html>
