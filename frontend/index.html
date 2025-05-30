@@ -4,42 +4,53 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>โปรแกรมวางแผนการผลิต (Handsontable)</title>
-    <!-- เพิ่ม Tailwind CSS ผ่าน CDN -->
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <!-- เพิ่ม Handsontable CSS และ JS ผ่าน CDN -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css">
     <script src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
-
     <style>
-        /* เพิ่มสไตล์เล็กน้อยสำหรับตาราง (ถ้าต้องการ) */
-       /* table {
-            border-collapse: collapse;
-            width: 100%;
+        #hotContainer { width: 100%; height: 500px; overflow: auto; }
+        .filter-container label { margin-right: 0.5rem; }
+        .filter-container input, .filter-container select {
+            margin-right: 1rem;
+            padding: 0.5rem;
+            border: 1px solid #ccc;
+            border-radius: 0.25rem;
         }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        th {
-            background-color: #f2f2f2;
-        }*/
-        #hotContainer {
-            width: 100%;
-            height: 500px; 
-            overflow: auto; /* Handsontable จะจัดการ scrollbar เอง */
+        .filter-container button {
+            padding: 0.5rem 1rem;
+            border-radius: 0.25rem;
+            color: white;
         }
     </style>
 </head>
-<body class="bg-gray-100 p-8">
+<body class="bg-gray-100 p-4 md:p-8">
     <div class="container mx-auto bg-white p-6 rounded-lg shadow-lg">
-        <h1 class="text-2xl font-bold mb-4 text-center">แผนการผลิต (Handsontable)</h1>
+        <h1 class="text-2xl font-bold mb-6 text-center">แผนการผลิต</h1>
 
-        <!-- Container สำหรับ Handsontable -->
-        <div id="hotContainer"></div>
+        <!-- Filter Section -->
+        <div class="filter-container mb-6 p-4 bg-gray-50 rounded shadow">
+            <label for="machineFilter">เครื่องจักร:</label>
+            <input type="text" id="machineFilter" placeholder="เช่น I1">
+            <!-- หรือจะทำเป็น Dropdown ถ้ามีรายการเครื่องจักรไม่มาก -->
+            <!-- <select id="machineFilter"> <option value="I1">I1</option> <option value="I2">I2</option> </select> -->
 
-        <!-- เพิ่มปุ่มสำหรับ Save (ยังไม่ได้ implement functionality) -->
-        <div class="mt-4 text-center">
+            <label for="startDateFilter">วันที่เริ่มต้น:</label>
+            <input type="date" id="startDateFilter">
+
+            <label for="endDateFilter">วันที่สิ้นสุด:</label>
+            <input type="date" id="endDateFilter">
+
+            <button id="loadDataButton" class="bg-indigo-500 hover:bg-indigo-700">
+                โหลดข้อมูล
+            </button>
+        </div>
+
+        <!-- Handsontable Container -->
+        <div id="hotContainer" class="mb-6"></div>
+        <div id="messageArea" class="text-center mb-4"></div> <!-- สำหรับแสดงข้อความ Success/Error -->
+
+        <!-- Action Buttons -->
+        <div class="text-center">
             <button id="saveButton"
                     class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
                 บันทึกข้อมูล
@@ -49,99 +60,185 @@
 
     <script>
         let hotInstance;
-        function formatDate(dateString) {
+        const API_BASE_URL = 'http://127.0.0.1:5000/api'; // กำหนด Base URL ของ API
+
+        // --- DOM Elements ---
+        const machineFilterInput = document.getElementById('machineFilter');
+        const startDateFilterInput = document.getElementById('startDateFilter');
+        const endDateFilterInput = document.getElementById('endDateFilter');
+        const loadDataButton = document.getElementById('loadDataButton');
+        const saveButton = document.getElementById('saveButton');
+        const hotElement = document.getElementById('hotContainer');
+        const messageArea = document.getElementById('messageArea');
+
+        // --- Utility Functions ---
+        function formatDateForDisplay(dateString) { // Format วันที่ที่มาจาก API (ถ้าจำเป็น)
             if (!dateString) return '';
             try {
                 const date = new Date(dateString);
-                // ให้ return YYYY-MM-DD
-                return date.toISOString().split('T')[0];
-            } catch (e) {
-                return dateString; // ถ้า format ไม่ได้ ก็ return ค่าเดิม
-            }
+                return date.toISOString().split('T')[0]; // YYYY-MM-DD
+            } catch (e) { return dateString; }
         }
 
-        async function initializeHandsontable() {
-            const hotElement = document.getElementById('hotContainer');
-            if (!hotElement) {
-                console.error('Handsontable container not found!');
+        function showMessage(message, isError = false) {
+            messageArea.textContent = message;
+            messageArea.className = `text-center mb-4 p-2 rounded ${isError ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`;
+            setTimeout(() => { messageArea.textContent = ''; messageArea.className = 'text-center mb-4'; }, 5000);
+        }
+
+        // --- Handsontable Configuration ---
+        // กำหนดคอลัมน์ให้ตรงกับข้อมูลที่ GET API ส่งมา และฟิลด์ที่ต้องการให้ผู้ใช้แก้ไข
+        // ลำดับคอลัมน์ใน colHeaders และ columns ควรจะสอดคล้องกัน
+        const hotSettings = {
+            data: [],
+            rowHeaders: true,
+            colHeaders: [
+                'เครื่องจักร', 'หน่วยงาน', 'วันที่ผลิต', 'MAT CODE', 'ขนาด', 'ตัน',
+                'รายละเอียด', 'เวลาผลิต', 'ชม.', 'กะ', 'เวลาเริ่ม', 'เวลาสิ้นสุด', 'เกรด BL', 'Rev', 'ผู้ใช้'
+            ],
+            columns: [
+                { data: 'machine', readOnly: true }, // เครื่องจักรอาจจะ ReadOnly เพราะ Filter มาแล้ว
+                { data: 'station', type: 'text' },
+                { data: 'postingdate', type: 'date', dateFormat: 'YYYY-MM-DD', correctFormat: true },
+                { data: 'material_code', type: 'text' },
+                { data: 'size', type: 'text' },
+                { data: 'ton', type: 'numeric', numericFormat: { pattern: '0,0.00' } },
+                { data: 'description', type: 'text' },
+                { data: 'protime', type: 'text' },
+                { data: 'htime', type: 'numeric', numericFormat: { pattern: '0,0.00' } },
+                { data: 'shift', type: 'text' },
+                { data: 's_time', type: 'text' }, // อาจจะใช้ type 'time' ถ้า Handsontable รองรับดี
+                { data: 'e_time', type: 'text' },
+                { data: 'bl_grade', type: 'text' },
+                { data: 'rev', type: 'numeric' },
+                { data: 'username', type: 'text', readOnly: true } // ผู้ใช้อาจจะไม่ต้องแก้
+            ],
+            stretchH: 'all',
+            height: 'auto',
+            licenseKey: 'non-commercial-and-evaluation',
+            copyPaste: true,
+            undo: true,
+            contextMenu: true,
+            minSpareRows: 1, // มีแถวว่างให้เพิ่มข้อมูลได้
+            // afterChange: (changes, source) => {
+            //     if (source === 'edit' || source === 'CopyPaste.paste') {
+            //         console.log('Data changed:', changes);
+            //         // อาจจะทำอะไรบางอย่างเมื่อข้อมูลเปลี่ยน เช่น ตั้ง Flag ว่ามีการแก้ไข
+            //     }
+            // }
+        };
+
+        // --- Event Listeners ---
+        loadDataButton.addEventListener('click', async () => {
+            const machine = machineFilterInput.value.trim();
+            const startDate = startDateFilterInput.value;
+            const endDate = endDateFilterInput.value;
+
+            if (!machine) {
+                showMessage('กรุณาระบุเครื่องจักร', true);
+                return;
+            }
+            // อาจจะ Validate startDate และ endDate เพิ่มเติม
+
+            let queryParams = `machine=${encodeURIComponent(machine)}`;
+            if (startDate) queryParams += `&startDate=${startDate}`;
+            if (endDate) queryParams += `&endDate=${endDate}`;
+
+            showMessage('กำลังโหลดข้อมูล...', false);
+            try {
+                const response = await fetch(`${API_BASE_URL}/production_plans?${queryParams}`);
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({error: `HTTP error! status: ${response.status}`}));
+                    throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+                }
+                const apiData = await response.json();
+
+                // Format ข้อมูลสำหรับ Handsontable (เช่น วันที่)
+                const hotData = apiData.map(item => ({
+                    ...item, // Spread all properties from item
+                    postingdate: formatDateForDisplay(item.postingdate) // Format postingdate
+                    // คุณอาจจะต้อง Format field อื่นๆ ที่เป็น Date/Time ด้วยถ้าจำเป็น
+                }));
+
+                if (hotInstance) {
+                    hotInstance.loadData(hotData);
+                } else {
+                    hotSettings.data = hotData; // ใส่ข้อมูลให้กับ settings ก่อนสร้าง instance
+                    hotInstance = new Handsontable(hotElement, hotSettings);
+                }
+                showMessage(`โหลดข้อมูลสำหรับเครื่องจักร ${machine} สำเร็จ`, false);
+            } catch (error) {
+                console.error('Error loading data:', error);
+                showMessage(`เกิดข้อผิดพลาดในการโหลดข้อมูล: ${error.message}`, true);
+                if (hotInstance) hotInstance.loadData([]); // Clear data on error
+            }
+        });
+
+        saveButton.addEventListener('click', async () => {
+            if (!hotInstance) {
+                showMessage('ยังไม่มีข้อมูลให้บันทึก', true);
                 return;
             }
 
+            const machineToSave = machineFilterInput.value.trim(); // เครื่องจักรที่กำลังทำงานด้วย
+            const deleteStartDate = startDateFilterInput.value; // ช่วงวันที่ที่ Filter ไว้
+            const deleteEndDate = endDateFilterInput.value;
+
+            if (!machineToSave) {
+                showMessage('ไม่พบข้อมูลเครื่องจักรที่จะบันทึก', true);
+                return;
+            }
+            if (!deleteStartDate || !deleteEndDate) {
+                showMessage('กรุณาระบุช่วงวันที่เริ่มต้นและสิ้นสุด (จาก Filter) ก่อนบันทึก', true);
+                // หรือจะให้ min/max date มาจากข้อมูลในตาราง ถ้าไม่ได้ filter?
+                // แต่ตามที่เราตกลง จะใช้ค่าจาก Filter
+                return;
+            }
+
+            const currentPlanData = hotInstance.getData(); // ดึงข้อมูลทั้งหมดจากตาราง (Array of Objects)
+            
+            // ตรวจสอบว่าข้อมูลใน currentPlanData มี machine ตรงกับ machineToSave หรือไม่ (ถ้าจำเป็น)
+            // หรืออาจจะเติม machine_code ให้ทุก item ก่อนส่ง ถ้า API ต้องการ (แต่ API ปัจจุบันรับ machine_code แยก)
+
+            const payload = {
+                machine_code: machineToSave,
+                delete_start_date: deleteStartDate,
+                delete_end_date: deleteEndDate,
+                new_plan_data: currentPlanData
+            };
+
+            showMessage('กำลังบันทึกข้อมูล...', false);
             try {
-                // ตรวจสอบให้แน่ใจว่า Flask API ของคุณ (app.py) กำลังรันอยู่ที่ http://127.0.0.1:5000
-                const response = await fetch('http://127.0.0.1:5000/api/production_plans');
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                let apiData = await response.json();
-                const hotData = apiData.map(item => ({
-                    machine: item.machine,
-                    station: item.station,
-                    postingdate: formatDate(item.postingdate), // Format วันที่
-                    material_code: item.material_code,
-                    size: item.size,
-                    ton: item.ton
-                }));
-
-                hotInstance = new Handsontable(hotElement, {
-                    data: hotData, 
-                    rowHeaders: true, 
-                    minSpareRows: 1,
-                    colHeaders: [ 
-                        'เครื่องจักร',
-                        'หน่วยงาน',
-                        'วันที่ผลิต (YYYY-MM-DD)',
-                        'MAT CODE',
-                        'ขนาด',
-                        'จำนวนตัน'
-                    ],
-                    columns: [ // กำหนดคุณสมบัติของแต่ละคอลัมน์
-                        { data: 'machine', type: 'text' },
-                        { data: 'station', type: 'text' },
-                        {
-                            data: 'postingdate',
-                            type: 'date', // กำหนด type เป็น date
-                            dateFormat: 'YYYY-MM-DD', // Format ที่ต้องการเมื่อแก้ไข
-                            correctFormat: true // ให้ Handsontable ช่วยแก้ Format ที่ผิด
-                        },
-                        { data: 'material_code', type: 'text' },
-                        { data: 'size', type: 'text' },
-                        { data: 'ton', type: 'numeric', numericFormat: { pattern: '0,0.00' } } // ตัวเลข, format
-                    ],
-                    stretchH: 'all', // ให้คอลัมน์ขยายเต็มความกว้าง
-                    height: 'auto', // ให้ความสูงปรับตาม #hotContainer
-                    licenseKey: 'non-commercial-and-evaluation', // Key สำหรับ Free version
-                    // เปิดใช้งานการ copy/paste
-                    copyPaste: true,
-                    // เปิดใช้งานการ undo/redo
-                    undo: true,
-                    // contextMenu: true, // ถ้าต้องการเมนูคลิกขวา (มี copy, paste, insert row/col etc.)
-                    // minSpareRows: 1, // เพิ่มแถวว่างด้านล่างเสมอ เพื่อให้ง่ายต่อการเพิ่มข้อมูลใหม่
+                const response = await fetch(`${API_BASE_URL}/production_plan/update_by_machine_and_date_range`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
                 });
 
-                // --- ส่วนของปุ่ม Save (ยังไม่ implement การส่งข้อมูลกลับไป API) ---
-                const saveButton = document.getElementById('saveButton');
-                if (saveButton) {
-                    saveButton.addEventListener('click', () => {
-                        if (hotInstance) {
-                            const currentData = hotInstance.getSourceDataArray(); // หรือ hotInstance.getData()
-                            console.log('Data to save:', currentData);
-                            alert('ดูข้อมูลที่ต้องการบันทึกใน Console (F12)');
-                            // TODO: ส่ง currentData กลับไปที่ Backend API เพื่อบันทึก
-                        }
-                    });
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({error: `HTTP error! status: ${response.status}`}));
+                    throw new Error(errData.error || `Failed to save data. Status: ${response.status}`);
                 }
 
+                const result = await response.json();
+                showMessage(result.message || 'บันทึกข้อมูลสำเร็จ!', false);
+                
+                // Reload ข้อมูลหลังจากบันทึกสำเร็จ (เพื่อให้เห็นข้อมูลล่าสุด)
+                loadDataButton.click(); // Simulate click on load data button
 
             } catch (error) {
-                console.error('Error initializing Handsontable or fetching data:', error);
-                hotElement.innerHTML = `<p class="text-red-500 text-center">เกิดข้อผิดพลาด: ${error.message}</p>`;
+                console.error('Error saving data:', error);
+                showMessage(`เกิดข้อผิดพลาดในการบันทึก: ${error.message}`, true);
             }
-        }
+        });
 
-        // เรียกฟังก์ชันเมื่อหน้าเว็บโหลดเสร็จ
-        document.addEventListener('DOMContentLoaded', initializeHandsontable);
+        // Initialize (อาจจะโหลดข้อมูลเริ่มต้นถ้าต้องการ หรือรอผู้ใช้กด "โหลดข้อมูล")
+        // document.addEventListener('DOMContentLoaded', () => {
+        //    // ถ้าต้องการสร้าง Handsontable ว่างๆ ไว้ก่อน
+        //    // hotInstance = new Handsontable(hotElement, hotSettings);
+        // });
     </script>
 </body>
 </html>
