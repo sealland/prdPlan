@@ -116,7 +116,8 @@ def update_production_plan_by_machine_and_date_range():
             new_plan_data = []  # ทำให้ new_plan_data เป็น empty list จริงๆ
         else:
             return jsonify({"error": "new_plan_data must be a list (can be empty)"}), 400
-
+    print(f"Received new_plan_data type: {type(new_plan_data)}")  # ดู type
+    print(f"Received new_plan_data content: {new_plan_data}")  # ดูเนื้อหา
     conn = None
     try:
         conn = get_db_connection()
@@ -162,9 +163,16 @@ def update_production_plan_by_machine_and_date_range():
             # จำนวน ? ใน VALUES คือ 17 ตัว (ไม่รวม GETDATE() และ NULL 4 ตัวที่ hardcode)
             # รวมทั้งหมด 21 ค่าที่จะถูกใส่เข้าไปใน 21 คอลัมน์
 
-            for item in new_plan_data:
-                # --- Primary Key Components (จาก item และ machine_code หลัก) ---
-                # machine (มาจาก machine_code หลัก)
+            for item_index, item in enumerate(new_plan_data): # ใช้ enumerate เพื่อดู index ด้วย
+                print(f"Processing item at index {item_index}, type: {type(item)}")  # ดู type ของแต่ละ item
+                print(f"Item content: {item}")  # ดูเนื้อหาของแต่ละ item
+                if not isinstance(item, dict):  # ตรวจสอบให้แน่ใจว่า item เป็น dictionary
+                    print(f"Error: Item at index {item_index} is not a dictionary. Skipping or raising error.")
+                    # คุณอาจจะ raise ValueError หรือ continue เพื่อข้าม item นี้
+                    # conn.rollback() # ถ้าต้องการให้ transaction ล้มเหลวทั้งหมด
+                    # return jsonify({"error": f"Invalid data format: item at index {item_index} is not an object"}), 400
+                    raise ValueError(f"Invalid data format: item at index {item_index} is not an object. Item: {item}")
+
                 station = item.get('station')
                 postingdate_str = item.get('postingdate')  # ควรเป็น 'YYYY-MM-DD' หรือ 'YYYY-MM-DD HH:MM:SS'
                 material_code = item.get('material_code')

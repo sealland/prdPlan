@@ -30,15 +30,13 @@
         <!-- Filter Section -->
         <div class="filter-container mb-6 p-4 bg-gray-50 rounded shadow">
             <label for="machineFilter">เครื่องจักร:</label>
-            <input type="text" id="machineFilter" placeholder="เช่น I1">
-            <!-- หรือจะทำเป็น Dropdown ถ้ามีรายการเครื่องจักรไม่มาก -->
-            <!-- <select id="machineFilter"> <option value="I1">I1</option> <option value="I2">I2</option> </select> -->
+            <input type="text" id="machineFilter" placeholder="เช่น I1" value="40"> <!-- ใส่ค่าเริ่มต้นไว้ทดสอบ -->
 
             <label for="startDateFilter">วันที่เริ่มต้น:</label>
-            <input type="date" id="startDateFilter">
+            <input type="date" id="startDateFilter" value="2025-04-30"> <!-- ใส่ค่าเริ่มต้นไว้ทดสอบ -->
 
             <label for="endDateFilter">วันที่สิ้นสุด:</label>
-            <input type="date" id="endDateFilter">
+            <input type="date" id="endDateFilter" value="2025-04-30"> <!-- ใส่ค่าเริ่มต้นไว้ทดสอบ -->
 
             <button id="loadDataButton" class="bg-indigo-500 hover:bg-indigo-700">
                 โหลดข้อมูล
@@ -60,7 +58,7 @@
 
     <script>
         let hotInstance;
-        const API_BASE_URL = 'http://127.0.0.1:5000/api'; // กำหนด Base URL ของ API
+        const API_BASE_URL = 'http://127.0.0.1:5000/api';
 
         // --- DOM Elements ---
         const machineFilterInput = document.getElementById('machineFilter');
@@ -72,23 +70,21 @@
         const messageArea = document.getElementById('messageArea');
 
         // --- Utility Functions ---
-        function formatDateForDisplay(dateString) { // Format วันที่ที่มาจาก API (ถ้าจำเป็น)
+        function formatDateForDisplay(dateString) {
             if (!dateString) return '';
             try {
                 const date = new Date(dateString);
-                return date.toISOString().split('T')[0]; // YYYY-MM-DD
+                return date.toISOString().split('T')[0];
             } catch (e) { return dateString; }
         }
 
         function showMessage(message, isError = false) {
             messageArea.textContent = message;
             messageArea.className = `text-center mb-4 p-2 rounded ${isError ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`;
-            setTimeout(() => { messageArea.textContent = ''; messageArea.className = 'text-center mb-4'; }, 5000);
+            // setTimeout(() => { messageArea.textContent = ''; messageArea.className = 'text-center mb-4'; }, 7000); // เพิ่มเวลาแสดงผล
         }
 
         // --- Handsontable Configuration ---
-        // กำหนดคอลัมน์ให้ตรงกับข้อมูลที่ GET API ส่งมา และฟิลด์ที่ต้องการให้ผู้ใช้แก้ไข
-        // ลำดับคอลัมน์ใน colHeaders และ columns ควรจะสอดคล้องกัน
         const hotSettings = {
             data: [],
             rowHeaders: true,
@@ -97,7 +93,8 @@
                 'รายละเอียด', 'เวลาผลิต', 'ชม.', 'กะ', 'เวลาเริ่ม', 'เวลาสิ้นสุด', 'เกรด BL', 'Rev', 'ผู้ใช้'
             ],
             columns: [
-                { data: 'machine', readOnly: true }, // เครื่องจักรอาจจะ ReadOnly เพราะ Filter มาแล้ว
+                //{ data: 'machine', readOnly: true },
+                { data: 'machine', type: 'text' },
                 { data: 'station', type: 'text' },
                 { data: 'postingdate', type: 'date', dateFormat: 'YYYY-MM-DD', correctFormat: true },
                 { data: 'material_code', type: 'text' },
@@ -107,26 +104,36 @@
                 { data: 'protime', type: 'text' },
                 { data: 'htime', type: 'numeric', numericFormat: { pattern: '0,0.00' } },
                 { data: 'shift', type: 'text' },
-                { data: 's_time', type: 'text' }, // อาจจะใช้ type 'time' ถ้า Handsontable รองรับดี
+                { data: 's_time', type: 'text' },
                 { data: 'e_time', type: 'text' },
                 { data: 'bl_grade', type: 'text' },
                 { data: 'rev', type: 'numeric' },
-                { data: 'username', type: 'text', readOnly: true } // ผู้ใช้อาจจะไม่ต้องแก้
+                { data: 'username', type: 'text', readOnly: true }
             ],
             stretchH: 'all',
-            height: 'auto',
+            height: 'auto', // ให้ #hotContainer ควบคุมความสูง
             licenseKey: 'non-commercial-and-evaluation',
             copyPaste: true,
             undo: true,
             contextMenu: true,
-            minSpareRows: 1, // มีแถวว่างให้เพิ่มข้อมูลได้
-            // afterChange: (changes, source) => {
-            //     if (source === 'edit' || source === 'CopyPaste.paste') {
-            //         console.log('Data changed:', changes);
-            //         // อาจจะทำอะไรบางอย่างเมื่อข้อมูลเปลี่ยน เช่น ตั้ง Flag ว่ามีการแก้ไข
-            //     }
-            // }
+            minSpareRows: 1,
+            afterChange: (changes, source) => {
+                if (source === 'loadData') { // ไม่สนใจ event จาก loadData
+                    return;
+                }
+                if (changes) { // เช็คว่า changes ไม่ใช่ null
+                     console.log('Data changed (afterChange):', changes, 'Source:', source);
+                }
+            }
         };
+
+        // --- Initial Load / Test (แบบที่คุณลอง) ---
+        document.addEventListener('DOMContentLoaded', () => {
+            // ไม่สร้าง instance ที่นี่แล้ว จะให้ loadDataButton เป็นคนสร้างครั้งแรก
+            // เพื่อให้แน่ใจว่า data และ settings ถูกใช้พร้อมกัน
+            console.log("DOMContentLoaded: Handsontable instance will be created by Load Data button.");
+        });
+
 
         // --- Event Listeners ---
         loadDataButton.addEventListener('click', async () => {
@@ -138,7 +145,6 @@
                 showMessage('กรุณาระบุเครื่องจักร', true);
                 return;
             }
-            // อาจจะ Validate startDate และ endDate เพิ่มเติม
 
             let queryParams = `machine=${encodeURIComponent(machine)}`;
             if (startDate) queryParams += `&startDate=${startDate}`;
@@ -152,36 +158,92 @@
                     throw new Error(errData.error || `HTTP error! status: ${response.status}`);
                 }
                 const apiData = await response.json();
-
-                // Format ข้อมูลสำหรับ Handsontable (เช่น วันที่)
                 const hotData = apiData.map(item => ({
-                    ...item, // Spread all properties from item
-                    postingdate: formatDateForDisplay(item.postingdate) // Format postingdate
-                    // คุณอาจจะต้อง Format field อื่นๆ ที่เป็น Date/Time ด้วยถ้าจำเป็น
+                    ...item,
+                    postingdate: formatDateForDisplay(item.postingdate)
                 }));
-
+                console.log("LOAD DATA - hotData prepared for Handsontable:", JSON.stringify(hotData, null, 2)); // <<<< เพิ่มอันนี้
                 if (hotInstance) {
-                    hotInstance.loadData(hotData);
-                } else {
-                    hotSettings.data = hotData; // ใส่ข้อมูลให้กับ settings ก่อนสร้าง instance
-                    hotInstance = new Handsontable(hotElement, hotSettings);
+                    console.log("Updating existing Handsontable instance with fetched data.");
+                    // ใช้ updateSettings เพื่อให้แน่ใจว่า columns ถูก apply
+                    hotInstance.updateSettings({
+                         data: hotData,
+                         columns: hotSettings.columns,
+                         colHeaders: hotSettings.colHeaders,
+                         rowHeaders: hotSettings.rowHeaders,
+                         minSpareRows: hotSettings.minSpareRows
+                    });
+                    // hotInstance.loadData(hotData); // วิธีเดิม
+                } else if (hotElement) { // ถ้า hotInstance ยังไม่ได้ถูกสร้าง (เช่น ถ้าส่วน DOMContentLoaded ไม่ได้สร้างไว้)
+                    console.log("LOAD DATA: Creating new Handsontable instance.");
+                    const settingsForNewInstance = {
+                        ...hotSettings, // เอา settings ทั้งหมดมาจาก hotSettings ที่เรานิยามไว้
+                        data: hotData   // override data ด้วยข้อมูลที่ fetch มา
+                    };
+                    console.log("LOAD DATA: Columns for new instance:", JSON.stringify(settingsForNewInstance.columns, null, 2));
+                    hotInstance = new Handsontable(hotElement, settingsForNewInstance);
                 }
                 showMessage(`โหลดข้อมูลสำหรับเครื่องจักร ${machine} สำเร็จ`, false);
             } catch (error) {
                 console.error('Error loading data:', error);
                 showMessage(`เกิดข้อผิดพลาดในการโหลดข้อมูล: ${error.message}`, true);
-                if (hotInstance) hotInstance.loadData([]); // Clear data on error
+                if (hotInstance) hotInstance.loadData([]);
             }
         });
 
-        saveButton.addEventListener('click', async () => {
+            saveButton.addEventListener('click', async () => {
             if (!hotInstance) {
-                showMessage('ยังไม่มีข้อมูลให้บันทึก', true);
+                showMessage('ยังไม่มีข้อมูลให้บันทึก (Handsontable instance not found)', true);
                 return;
             }
 
-            const machineToSave = machineFilterInput.value.trim(); // เครื่องจักรที่กำลังทำงานด้วย
-            const deleteStartDate = startDateFilterInput.value; // ช่วงวันที่ที่ Filter ไว้
+            // 1. ดึงข้อมูล Source จาก Handsontable (ซึ่งควรจะเป็น Array of Objects)
+            const sourceDataObjects = hotInstance.getSourceData();
+
+            console.log("Save - getSourceData() result (before filtering spares):", JSON.stringify(sourceDataObjects, null, 2));
+
+            // 2. Filter เอาแถวที่เป็น Spare Rows จริงๆ ออกไป
+            // Spare rows จาก getSourceData() มักจะเป็น object ที่มี property ทั้งหมดเป็น null
+            // เงื่อนไขการ filter: ถ้าทุก property ที่เป็นส่วนหนึ่งของ Primary Key (หรือ property สำคัญอื่นๆ) เป็น null
+            // ให้ถือว่าเป็น spare row ที่ไม่ต้องการส่งไป backend
+            // **สำคัญ:** ตรวจสอบว่าชื่อ property ในการ filter (เช่น item.machine, item.material_code)
+            // ตรงกับ 'data' property ที่คุณกำหนดใน hotSettings.columns
+            const filteredPlanData = sourceDataObjects.filter(item => {
+                // ตรวจสอบว่า item เป็น object และไม่ null ก่อนที่จะเข้าถึง property
+                if (typeof item !== 'object' || item === null) {
+                    return false; // ไม่ใช่ object หรือเป็น null ก็ไม่เอา
+                }
+                if (Object.keys(item).length === 0) {
+                    console.log("Filtering out empty object: {}", item);
+                    return false; // เป็น Object ว่าง ก็ไม่เอา
+                }
+                // เงื่อนไข: ถ้าทุก PK fields (หรือ field สำคัญ) เป็น null แสดงว่าเป็น spare row
+                // (ปรับเงื่อนไขนี้ตามความเหมาะสมกับข้อมูลของคุณ)
+                const station = item.station;
+                const postingdate = item.postingdate;
+                const material_code = item.material_code;
+                const shift = item.shift; // ตรวจสอบชื่อ property ให้ตรงกับ columns setting
+
+                if ((station === null || String(station).trim() === '') &&
+                        (postingdate === null || String(postingdate).trim() === '') &&
+                        (material_code === null || String(material_code).trim() === '') &&
+                        (shift === null || String(shift).trim() === '')) {
+                        console.log("Filtering out row with all null/empty PKs:", item);
+                        return false;
+                }
+                
+                if (!station || !postingdate || !material_code || !shift) {
+                    console.log("Filtering out row with missing essential PK field(s):", item);
+                    return false;
+                }
+
+                return true; // ถ้าผ่านเงื่อนไขด้านบน แสดงว่าเป็นข้อมูลที่ต้องการ
+            });
+
+            console.log("Save - filteredPlanData (after filtering spares):", JSON.stringify(filteredPlanData, null, 2));
+
+            const machineToSave = machineFilterInput.value.trim();
+            const deleteStartDate = startDateFilterInput.value;
             const deleteEndDate = endDateFilterInput.value;
 
             if (!machineToSave) {
@@ -190,22 +252,26 @@
             }
             if (!deleteStartDate || !deleteEndDate) {
                 showMessage('กรุณาระบุช่วงวันที่เริ่มต้นและสิ้นสุด (จาก Filter) ก่อนบันทึก', true);
-                // หรือจะให้ min/max date มาจากข้อมูลในตาราง ถ้าไม่ได้ filter?
-                // แต่ตามที่เราตกลง จะใช้ค่าจาก Filter
                 return;
             }
 
-            const currentPlanData = hotInstance.getData(); // ดึงข้อมูลทั้งหมดจากตาราง (Array of Objects)
-            
-            // ตรวจสอบว่าข้อมูลใน currentPlanData มี machine ตรงกับ machineToSave หรือไม่ (ถ้าจำเป็น)
-            // หรืออาจจะเติม machine_code ให้ทุก item ก่อนส่ง ถ้า API ต้องการ (แต่ API ปัจจุบันรับ machine_code แยก)
+            // ถ้า filteredPlanData ว่างเปล่า (หลังจาก filter spare rows)
+            // และผู้ใช้ต้องการให้การกด Save เป็นการ "ล้างข้อมูล" ในช่วงนั้น ก็ดำเนินการต่อ
+            // ถ้าไม่ต้องการ ให้แสดง message แล้ว return
+            if (filteredPlanData.length === 0) {
+                console.log("Save - No actual data to save after filtering spare rows. Proceeding to clear data in range if intended.");
+                // ถ้าคุณไม่ต้องการให้ส่ง request ถ้าไม่มีข้อมูลใหม่เลย ก็สามารถ return หรือถามผู้ใช้ตรงนี้
+                // showMessage('ไม่มีข้อมูลใหม่ที่จะบันทึก (หลังจากกรองแถวว่าง)', true);
+                // return;
+            }
 
             const payload = {
                 machine_code: machineToSave,
                 delete_start_date: deleteStartDate,
                 delete_end_date: deleteEndDate,
-                new_plan_data: currentPlanData
+                new_plan_data: filteredPlanData // ใช้ข้อมูลที่ผ่านการ filter แล้ว
             };
+            console.log("Payload to send:", JSON.stringify(payload, null, 2));
 
             showMessage('กำลังบันทึกข้อมูล...', false);
             try {
@@ -218,27 +284,39 @@
                 });
 
                 if (!response.ok) {
-                    const errData = await response.json().catch(() => ({error: `HTTP error! status: ${response.status}`}));
-                    throw new Error(errData.error || `Failed to save data. Status: ${response.status}`);
+                    let errorMessage = `Failed to save data. Status: ${response.status} ${response.statusText || ''}`;
+                    try {
+                        const errorText = await response.text();
+                        console.log("Raw error response body (save error):", errorText);
+                        try {
+                            const errorResponseData = JSON.parse(errorText);
+                            if (typeof errorResponseData === 'object' && errorResponseData !== null) {
+                                if (errorResponseData.error) { errorMessage = errorResponseData.error; }
+                                else if (errorResponseData.message) { errorMessage = errorResponseData.message; }
+                                else { errorMessage = `Server error: ${errorText.substring(0, 200)}`; }
+                            } else if (typeof errorResponseData === 'string') { errorMessage = errorResponseData; }
+                        } catch (jsonParseError) {
+                            errorMessage = `Server error (not JSON): ${errorText.substring(0, 200)}`;
+                            console.warn("Error response body was not valid JSON (save error):", jsonParseError);
+                        }
+                    } catch (textReadError) {
+                        console.warn("Could not read error response body as text (save error):", textReadError);
+                    }
+                    throw new Error(errorMessage);
                 }
 
                 const result = await response.json();
                 showMessage(result.message || 'บันทึกข้อมูลสำเร็จ!', false);
                 
-                // Reload ข้อมูลหลังจากบันทึกสำเร็จ (เพื่อให้เห็นข้อมูลล่าสุด)
-                loadDataButton.click(); // Simulate click on load data button
+                // Reload ข้อมูลหลังจากบันทึกสำเร็จ
+                loadDataButton.click();
 
             } catch (error) {
                 console.error('Error saving data:', error);
-                showMessage(`เกิดข้อผิดพลาดในการบันทึก: ${error.message}`, true);
+                const displayErrorMessage = (error instanceof Error && error.message) ? error.message : String(error);
+                showMessage(`เกิดข้อผิดพลาดในการบันทึก: ${displayErrorMessage}`, true);
             }
         });
-
-        // Initialize (อาจจะโหลดข้อมูลเริ่มต้นถ้าต้องการ หรือรอผู้ใช้กด "โหลดข้อมูล")
-        // document.addEventListener('DOMContentLoaded', () => {
-        //    // ถ้าต้องการสร้าง Handsontable ว่างๆ ไว้ก่อน
-        //    // hotInstance = new Handsontable(hotElement, hotSettings);
-        // });
     </script>
 </body>
 </html>

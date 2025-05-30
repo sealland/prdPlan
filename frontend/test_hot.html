@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Minimal Handsontable Test</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
+</head>
+<body>
+    <div id="minimalHot"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const hotElement = document.getElementById('minimalHot');
+
+            const sampleData = [
+                { machine: 'M1', station: 'S1', postingdate: '2025-01-01', material_code: 'MC001', shift_val: 'A', ton_val: 10, size_val: 'SZ1' }, // ใช้ชื่อ key ที่ตรงกับ data property
+                { machine: 'M2', station: 'S2', postingdate: '2025-01-02', material_code: 'MC002', shift_val: 'B', ton_val: 20, size_val: 'SZ2' }
+            ];
+
+            const settings = {
+                data: sampleData,
+                rowHeaders: true,
+                colHeaders: ['Machine', 'Station', 'Date', 'Mat Code', 'Shift', 'Ton', 'Size'],
+                columns: [
+                    { data: 'machine' },
+                    { data: 'station' },
+                    { data: 'postingdate', type: 'date', dateFormat: 'YYYY-MM-DD' },
+                    { data: 'material_code' },
+                    { data: 'shift_val' }, // ชื่อ property ใน data object
+                    { data: 'ton_val', type: 'numeric' },
+                    { data: 'size_val' }
+                ],
+                licenseKey: 'non-commercial-and-evaluation',
+                minSpareRows: 1
+            };
+
+            console.log("Minimal Test - Columns setting:", JSON.stringify(settings.columns, null, 2));
+            console.log("Minimal Test - Sample data being passed:", JSON.stringify(settings.data, null, 2));
+
+            try {
+                const hot = new Handsontable(hotElement, settings);
+                console.log("Minimal Test - Instance created.");
+
+                const retrievedData = hot.getData();
+                console.log("Minimal Test - getData() result:", JSON.stringify(retrievedData, null, 2));
+                // ^^^^ This SHOULD be Array of Objects if everything is correct.
+
+                const retrievedSourceData = hot.getSourceData();
+                console.log("Minimal Test - getSourceData() result:", JSON.stringify(retrievedSourceData, null, 2));
+
+
+            } catch (e) {
+                console.error("Minimal Test - Error creating instance:", e);
+            }
+        });
+    </script>
+</body>
+</html>
